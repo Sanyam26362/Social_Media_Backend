@@ -21,11 +21,11 @@ const connectDB = async () =>{
 };
 connectDB();
 app.use(express.json());
-app.use('api/auth',authRoutes);
-app.use('api/posts',postRoutes);
-app.use('api/users',userRoutes);
+app.use('/api/auth',authRoutes);
+app.use('/api/posts',postRoutes);
+app.use('/api/users',userRoutes);
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () =>{
-    console.log('Server is running on PORT ${PORT}');
+    console.log(`Server is running on PORT ${PORT}`);
 
 });
