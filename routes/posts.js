@@ -1,35 +1,42 @@
-const express = require('express');
-const router = express.Router();
-const auth = require('../middleware/auth');
-const {
-  createPost,
-  getAllPosts,
-  deletePost,
-  likePost,
-} = require('../controllers/postController');
+const mongoose = require('mongoose');
+const Schema = mongoose.Schema;
 
-const {
-  createComment,
-  getCommentsForPost,
-} = require('../controllers/commentController');
+const PostSchema = new Schema({
+  user: {
+    type: Schema.Types.ObjectId,
+    ref: 'User',
+    required: true,
+  },
+  content: {
+    type: String,
+    required: false,
+    maxlength: 280,
+  },
+  likes: [
+    {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+    },
+  ],
+  createdAt: {
+    type: Date,
+    default: Date.now,
+  },
 
+ 
+  reposts: [
+    {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+    },
+  ],
 
-router.post('/', auth, createPost);
+ 
+  quotedPost: {
+    type: Schema.Types.ObjectId,
+    ref: 'Post',
+    optional: true,
+  },
+});
 
-
-router.get('/', getAllPosts);
-
-
-router.delete('/:id', auth, deletePost);
-
-
-router.put('/like/:id', auth, likePost);
-
-
-
-router.post('/:id/comment', auth, createComment);
-
-
-router.get('/:id/comments', getCommentsForPost);
-
-module.exports = router;
+module.exports = mongoose.model('Post', PostSchema);
