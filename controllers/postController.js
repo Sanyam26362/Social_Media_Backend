@@ -36,15 +36,13 @@ exports.getAllPosts = async (req, res) => {
 
 exports.deletePost = async (req, res) => {
   try {
-    // This one command finds the post by its ID and ensures the logged-in user is the owner
+    
     const post = await Post.findOneAndDelete({
       _id: req.params.id,
-      user: req.user.id, // Verifies ownership
+      user: req.user.id, 
     });
 
-    // If 'post' is null, it means either:
-    // 1. The post ID didn't exist.
-    // 2. The user was not the owner.
+    
     if (!post) {
       return res
         .status(404)
