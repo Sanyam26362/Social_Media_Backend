@@ -1,3 +1,4 @@
+// index.js (Render-ready)
 const express = require('express');
 const mongoose = require('mongoose');
 const dotenv = require('dotenv');
@@ -10,9 +11,7 @@ const rateLimit = require('express-rate-limit');
 dotenv.config();
 
 ['MONGO_URI', 'JWT_SECRET'].forEach((k) => {
-  if (!process.env[k]) {
-    console.warn(`[WARN] Missing env ${k}`);
-  }
+  if (!process.env[k]) console.warn(`[WARN] Missing env ${k}`);
 });
 
 const authRoutes = require('./routes/auth');
@@ -24,14 +23,22 @@ const messageRoutes = require('./routes/messages');
 
 const errorHandler = require('./middleware/errorHandler');
 
+const parseOrigins = (csv) =>
+  csv ? csv.split(',').map((s) => s.trim()).filter(Boolean) : '*';
+
 const app = express();
 const server = http.createServer(app);
+
+app.set('trust proxy', 1);
+
 const io = new Server(server, {
   cors: {
-    origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',') : '*',
+    origin: parseOrigins(process.env.CORS_ORIGIN),
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
     credentials: true,
   },
+  pingInterval: 25000,
+  pingTimeout: 30000,
 });
 
 (async () => {
@@ -47,11 +54,15 @@ const io = new Server(server, {
 app.use(helmet());
 app.use(
   cors({
-    origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',') : '*',
+    origin: parseOrigins(process.env.CORS_ORIGIN),
     credentials: true,
   })
 );
 app.use(express.json({ limit: '1mb' }));
+
+app.get('/healthz', (_req, res) => res.status(200).send('ok'));
+
+app.get('/', (_req, res) => res.status(200).json({ ok: true }));
 
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 100 });
 app.use('/api/auth', authLimiter);
@@ -63,6 +74,7 @@ app.use('/api/comments', commentRoutes);
 app.use('/api/feed', feedRoutes);
 app.use('/api/messages', messageRoutes);
 
+// ----- Socket presence map -----
 const onlineUsers = new Map();
 app.locals.io = io;
 app.locals.onlineUsers = onlineUsers;
@@ -87,7 +99,23 @@ io.on('connection', (socket) => {
   });
 });
 
+app.use((req, res) => res.status(404).json({ msg: 'Not found' }));
+
 app.use(errorHandler);
+
+const shutdown = (signal) => {
+  console.log(`[${signal}] shutting down...`);
+  server.close(async () => {
+    try {
+      await mongoose.connection.close(false);
+      console.log('Mongo connection closed');
+    } finally {
+      process.exit(0);
+    }
+  });
+};
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
 
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
