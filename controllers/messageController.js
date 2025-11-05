@@ -18,15 +18,16 @@ exports.sendMessage = asyncHandler(async (req, res) => {
   const { receiverId } = req.params;
   const senderId = req.user.id;
 
+  if (receiverId === senderId) {
+    return res.status(400).json({ msg: 'Cannot message yourself' });
+  }
+
   const receiver = await User.findById(receiverId).lean();
   if (!receiver) return res.status(404).json({ msg: 'Receiver not found' });
 
   const conversation = await Conversation.findOneAndUpdate(
     { participants: { $all: [senderId, receiverId] } },
-    {
-      $setOnInsert: { participants: [senderId, receiverId] },
-      $set: { lastMessageAt: Date.now() },
-    },
+    { $setOnInsert: { participants: [senderId, receiverId] }, $set: { lastMessageAt: Date.now() } },
     { upsert: true, new: true }
   );
 
@@ -34,15 +35,18 @@ exports.sendMessage = asyncHandler(async (req, res) => {
     conversation: conversation._id,
     sender: senderId,
     receiver: receiverId,
-    content,
+    content: content.trim(),
   });
 
   const { io, onlineUsers } = req.app.locals || {};
-  const receiverSocketId = onlineUsers?.get(receiverId);
-  if (io && receiverSocketId) io.to(receiverSocketId).emit('newMessage', newMessage);
+  const receiverSocketId = onlineUsers?.get(String(receiverId));
+  if (io && receiverSocketId) {
+    io.to(receiverSocketId).emit('newMessage', newMessage);
+  }
 
   res.status(201).json(newMessage);
 });
+
 
 exports.getConversations = asyncHandler(async (req, res) => {
   const conversations = await Conversation.find({ participants: req.user.id })
