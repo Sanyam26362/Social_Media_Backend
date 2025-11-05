@@ -11,7 +11,14 @@ const {
 } = require('../controllers/messageController');
 
 router.post('/:receiverId', auth, sendMessageValidators, sendMessage);
+
 router.get('/conversations', auth, getConversations);
-router.get('/conversation/:conversationId', auth, [param('conversationId').isMongoId(), validate], getMessages);
+
+router.get(
+  '/conversation/:conversationId',
+  auth,
+  [param('conversationId').isMongoId().withMessage('conversationId must be a valid ObjectId'), validate],
+  getMessages
+);
 
 module.exports = router;
