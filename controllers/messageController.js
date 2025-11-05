@@ -5,11 +5,13 @@ const Conversation = require('../models/Conversation');
 const Message = require('../models/Message');
 const User = require('../models/User');
 
+
 exports.sendMessageValidators = [
-  param('receiverId').isMongoId(),
-  body('content').isString().isLength({ min: 1 }),
+  param('receiverId').isMongoId().withMessage('receiverId must be a valid ObjectId'),
+  body('content').isString().trim().isLength({ min: 1 }).withMessage('Message content is required'),
   validate,
 ];
+
 
 exports.sendMessage = asyncHandler(async (req, res) => {
   const { content } = req.body;
