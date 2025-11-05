@@ -1,98 +1,55 @@
-const User = require('../models/User');
-const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-exports.registerUser = async(req,res) =>{
-     const { username, email, password } = req.body;
+const asyncHandler = require('../middleware/asyncHandler');
+const { body } = require('express-validator');
+const validate = require('../middleware/validate');
+const User = require('../models/User');
 
-  try {
-   
-    let user = await User.findOne({ $or: [{ email }, { username }] });
+exports.registerValidators = [
+  body('username').isString().isLength({ min: 3, max: 32 }),
+  body('email').isEmail(),
+  body('password').isLength({ min: 6 }),
+  validate,
+];
 
-    if (user) {
-      if (user.email === email) {
-        return res.status(400).json({ msg: 'User with this email already exists' });
-      }
-      if (user.username === username) {
-        return res.status(400).json({ msg: 'User with this username already exists' });
-      }
-    }
-        user = new User({
-            username,
-            email,
-            password,
-        });
-        const salt = await bcrypt.genSalt(10);
-        user.password = await bcrypt.hash(password,salt);
-        await user.save();
-        const payload = {
-            user: {
-                id: user.id,
+exports.loginValidators = [body('email').isEmail(), body('password').exists(), validate];
 
-            },
+const signToken = (user) =>
+  jwt.sign({ user: { id: user._id.toString() } }, process.env.JWT_SECRET, {
+    expiresIn: '5h',
+  });
 
-        };
-        jwt.sign(
-            payload,
-            process.env.JWT_SECRET,
-            {expiresIn: '5h'},
-            (err,token)=>{
-                if(err) throw err;
-                res.json({token});
+exports.registerUser = asyncHandler(async (req, res) => {
+  const { username, email, password } = req.body;
 
-            }
-        );
+  const exists = await User.findOne({ $or: [{ email }, { username }] }).lean();
+  if (exists) {
+    return res.status(409).json({
+      msg:
+        exists.email === email
+          ? 'User with this email already exists'
+          : 'User with this username already exists',
+    });
+  }
 
+  const user = await User.create({ username, email, password });
+  const token = signToken(user);
+  res.status(201).json({ token, user: { id: user._id, username: user.username, email: user.email } });
+});
 
-    } catch (err) {
-        console.error(err.message);
-        res.status(500).send('Server error');
+exports.loginUser = asyncHandler(async (req, res) => {
+  const { email, password } = req.body;
+  const user = await User.findOne({ email }).select('+password');
+  if (!user) return res.status(400).json({ msg: 'Invalid credentials' });
 
-    }
-};
-exports.loginUser = async (req,res) =>{
-    const {email,password} = req.body;
-    try {
-        let user = await User.findOne({email});
-        if(!user) {
-            return res.status(400).json({msg:'Invalid Credentials'});
+  const ok = await user.comparePassword(password);
+  if (!ok) return res.status(400).json({ msg: 'Invalid credentials' });
 
-        }
-        const isMatch = await bcrypt.compare(password,user.password);
-        if(!isMatch) {
-            return res.status(400).json({msg:'Invalid Credentials'});
+  const token = signToken(user);
+  res.json({ token, user: { id: user._id, username: user.username, email: user.email } });
+});
 
-        }
-        const payload ={
-            user: {
-                id: user.id,
-
-            },
-
-        };
-        jwt.sign(
-            payload,
-            process.env.JWT_SECRET,
-            {expiresIn: '5h'},
-            (err,token)=> {
-                if(err) throw err;
-                res.json({token});
-            }
-
-        );
-        
-    } catch (err) {
-        console.error(err.message);
-        res.status(500).send('Server error');
-
-    }
-};
-exports.getMe = async (req,res) =>{
-    try{
-        const user = await  User.findById(req.user.id).select('-password');
-        res.json(user);
-
-    } catch (err) {
-        console.error(err.message);
-        res.status(500).send('Server error');
-    }
-};
+exports.getMe = asyncHandler(async (req, res) => {
+  const me = await User.findById(req.user.id).lean().select('-password');
+  if (!me) return res.status(404).json({ msg: 'User not found' });
+  res.json(me);
+});
