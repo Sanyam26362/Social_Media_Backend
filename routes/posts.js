@@ -7,14 +7,15 @@ const {
   getAllPosts,
   deletePost,
   likePost,
+  repostPost, 
 } = require('../controllers/postController');
 
 const {
   createComment,
   getCommentsForPost,
-} = require('../controllers/commentController');
+} = require('../controllers/commentController'); 
 
-e
+
 router.post('/', auth, createPost);
 
 
@@ -36,4 +37,3 @@ router.post('/:id/comment', auth, createComment);
 router.get('/:id/comments', getCommentsForPost);
 
 module.exports = router;
-
