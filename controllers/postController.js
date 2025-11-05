@@ -1,136 +1,67 @@
+const asyncHandler = require('../middleware/asyncHandler');
+const { body, param } = require('express-validator');
+const validate = require('../middleware/validate');
 const Post = require('../models/Post');
-const User = require('../models/User');
 
+exports.createPostValidators = [
+  body('content').optional().isString().isLength({ min: 1, max: 280 }),
+  body('quotedPostId').optional().isMongoId(),
+  validate,
+];
 
-exports.createPost = async (req, res) => {
-  try {
-    const { content, quotedPostId } = req.body;
+exports.createPost = asyncHandler(async (req, res) => {
+  const { content, quotedPostId } = req.body;
 
-    if (!content && !quotedPostId) {
-      return res
-        .status(400)
-        .json({ msg: 'Post content or a quoted post is required' });
-    }
-
-    const postData = {
-      user: req.user.id,
-      content: content,
-    };
-
-    if (quotedPostId) {
-      const postToQuote = await Post.findById(quotedPostId);
-      if (!postToQuote) {
-        return res.status(404).json({ msg: 'Post to quote not found' });
-      }
-      postData.quotedPost = postToQuote.id;
-    }
-
-    const newPost = new Post(postData);
-    const post = await newPost.save();
-
-    const populatedPost = await Post.findById(post.id)
-      .populate('user', ['username'])
-      .populate({
-        path: 'quotedPost',
-        populate: {
-          path: 'user',
-          select: 'username',
-        },
-      });
-
-    res.json(populatedPost);
-  } catch (err) {
-    console.error(err.message);
-    res.status(500).send('Server Error');
+  if (!content && !quotedPostId) {
+    return res.status(400).json({ msg: 'Post content or a quoted post is required' });
   }
-};
 
-exports.getAllPosts = async (req, res) => {
-  try {
-    const posts = await Post.find()
-      .populate('user', ['username'])
-      .populate({
-        path: 'quotedPost',
-        populate: {
-          path: 'user',
-          select: 'username',
-        },
-      })
-      .sort({ createdAt: -1 });
-    res.json(posts);
-  } catch (err) {
-    console.error(err.message);
-    res.status(500).send('Server Error');
+  const postData = { user: req.user.id, content };
+  if (quotedPostId) {
+    const quoted = await Post.findById(quotedPostId).lean();
+    if (!quoted) return res.status(404).json({ msg: 'Post to quote not found' });
+    postData.quotedPost = quoted._id;
   }
-};
 
-exports.deletePost = async (req, res) => {
-  try {
-    const post = await Post.findOneAndDelete({
-      _id: req.params.id,
-      user: req.user.id,
-    });
+  const post = await Post.create(postData);
 
-    if (!post) {
-      return res.status(401).json({
-        msg: 'Post not found or user not authorized',
-      });
-    }
+  const populated = await Post.findById(post.id)
+    .populate('user', ['username'])
+    .populate({ path: 'quotedPost', populate: { path: 'user', select: 'username' } });
 
-    res.json({ msg: 'Post removed' });
-  } catch (err) {
-    console.error(err.message);
-    if (err.kind === 'ObjectId') {
-      return res.status(404).json({ msg: 'Post not found' });
-    }
-    res.status(500).send('Server Error');
-  }
-};
+  res.status(201).json(populated);
+});
 
-exports.likePost = async (req, res) => {
-  try {
-    const post = await Post.findById(req.params.id);
+exports.getAllPosts = asyncHandler(async (_req, res) => {
+  const posts = await Post.find()
+    .populate('user', ['username'])
+    .populate({ path: 'quotedPost', populate: { path: 'user', select: 'username' } })
+    .sort({ createdAt: -1 })
+    .lean();
 
-    if (!post) {
-      return res.status(404).json({ msg: 'Post not found' });
-    }
+  res.json(posts);
+});
 
-    if (post.likes.some((like) => like.toString() === req.user.id)) {
-      post.likes = post.likes.filter(
-        (like) => like.toString() !== req.user.id
-      );
-    } else {
-      post.likes.unshift(req.user.id);
-    }
+exports.deletePost = asyncHandler(async (req, res) => {
+  const post = await Post.findOneAndDelete({ _id: req.params.id, user: req.user.id });
+  if (!post) return res.status(404).json({ msg: 'Post not found or user not authorized' });
+  res.json({ msg: 'Post removed' });
+});
 
-    await post.save();
-    res.json(post.likes);
-  } catch (err) {
-    console.error(err.message);
-    res.status(500).send('Server error');
-  }
-};
+exports.likePost = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const hasLiked = await Post.exists({ _id: id, likes: req.user.id });
+  const update = hasLiked ? { $pull: { likes: req.user.id } } : { $addToSet: { likes: req.user.id } };
+  const updated = await Post.findByIdAndUpdate(id, update, { new: true }).select('likes').lean();
+  if (!updated) return res.status(404).json({ msg: 'Post not found' });
+  res.json(updated.likes);
+});
 
-
-exports.repostPost = async (req, res) => {
-  try {
-    const post = await Post.findById(req.params.id);
-    if (!post) {
-      return res.status(404).json({ msg: 'Post not found' });
-    }
-
-    if (post.reposts.some((repost) => repost.toString() === req.user.id)) {
-      post.reposts = post.reposts.filter(
-        (repost) => repost.toString() !== req.user.id
-      );
-    } else {
-      post.reposts.unshift(req.user.id);
-    }
-
-    await post.save();
-    res.json(post.reposts);
-  } catch (err) {
-    console.error(err.message);
-    res.status(500).send('Server Error');
-  }
-};
+exports.repostPost = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const hasReposted = await Post.exists({ _id: id, reposts: req.user.id });
+  const update = hasReposted ? { $pull: { reposts: req.user.id } } : { $addToSet: { reposts: req.user.id } };
+  const updated = await Post.findByIdAndUpdate(id, update, { new: true }).select('reposts').lean();
+  if (!updated) return res.status(404).json({ msg: 'Post not found' });
+  res.json(updated.reposts);
+});
