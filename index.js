@@ -3,24 +3,25 @@ const mongoose = require('mongoose');
 const dotenv = require('dotenv');
 const http = require('http'); 
 const { Server } = require('socket.io'); 
+const cors = require('cors'); 
 
 dotenv.config();
+
 
 const authRoutes = require('./routes/auth');
 const postRoutes = require('./routes/posts');
 const userRoutes = require('./routes/users');
-const commentRoutes = require('./routes/comment');
+const commentRoutes = require('./routes/comments');
 const feedRoutes = require('./routes/feed');
-const messageRoutes = require('./routes/message'); 
+const messageRoutes = require('./routes/messages'); 
+
 
 const app = express();
 const server = http.createServer(app); 
-
-
 const io = new Server(server, {
   cors: {
     origin: '*', 
-    methods: ['GET', 'POST'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
   },
 });
 
@@ -37,49 +38,55 @@ const connectDB = async () => {
     process.exit(1);
   }
 };
+
 connectDB();
 
-
-const onlineUsers = new Map();
-
-io.on('connection', (socket) => {
-  console.log('A user connected:', socket.id);
-
-  socket.on('addUser', (userId) => {
-    onlineUsers.set(userId, socket.id);
-    console.log(`User ${userId} added with socket ID ${socket.id}`);
-    io.emit('getOnlineUsers', Array.from(onlineUsers.keys()));
-  });
-
-  socket.on('disconnect', () => {
-    console.log('A user disconnected:', socket.id);
-    let userIdToRemove = null;
-    for (let [userId, socketId] of onlineUsers.entries()) {
-      if (socketId === socket.id) {
-        userIdToRemove = userId;
-        break;
-      }
-    }
-    if (userIdToRemove) {
-      onlineUsers.delete(userIdToRemove);
-      console.log(`User ${userIdToRemove} removed.`);
-      io.emit('getOnlineUsers', Array.from(onlineUsers.keys()));
-    }
-  });
-});
-
-app.use(express.json());
-
-
-app.locals.io = io;
-app.locals.onlineUsers = onlineUsers;
+app.use(cors()); 
+app.use(express.json()); 
 
 app.use('/api/auth', authRoutes);
 app.use('/api/posts', postRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/comments', commentRoutes);
 app.use('/api/feed', feedRoutes);
-app.use('/api/messages', messageRoutes); 
+app.use('/api/messages', messageRoutes);
+
+let onlineUsers = new Map(); 
+
+const addUser = (userId, socketId) => {
+  onlineUsers.set(userId, socketId);
+};
+
+const removeUser = (socketId) => {
+  onlineUsers.forEach((value, key) => {
+    if (value === socketId) {
+      onlineUsers.delete(key);
+    }
+  });
+};
+
+const getUserSocket = (userId) => {
+  return onlineUsers.get(userId);
+};
+
+io.on('connection', (socket) => {
+  console.log(`User connected: ${socket.id}`);
+
+  socket.on('addUser', (userId) => {
+    addUser(userId, socket.id);
+    console.log(`User ${userId} added with socket ${socket.id}`);
+  });
+
+  
+
+  socket.on('disconnect', () => {
+    console.log(`User disconnected: ${socket.id}`);
+    removeUser(socket.id);
+  });
+});
+
+app.set('socketio', io);
+app.set('getUserSocket', getUserSocket);
 
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {

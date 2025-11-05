@@ -13,7 +13,7 @@ router.post('/:receiverId', auth, sendMessage);
 
 router.get('/conversations', auth, getConversations);
 
-e
+
 router.get('/conversation/:conversationId', auth, getMessages);
 
 module.exports = router;
