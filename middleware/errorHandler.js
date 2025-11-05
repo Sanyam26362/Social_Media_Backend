@@ -1,6 +1,10 @@
 module.exports = (err, req, res, next) => {
   console.error(err);
 
+  if (err.name === 'CastError') {
+    return res.status(400).json({ msg: 'Invalid id format', path: err.path, value: err.value });
+  }
+
   if (err.code === 11000) {
     const field = Object.keys(err.keyValue || {})[0] || 'field';
     return res.status(409).json({ msg: `Duplicate ${field}` });
