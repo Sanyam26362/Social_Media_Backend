@@ -12,7 +12,6 @@ exports.sendMessageValidators = [
   validate,
 ];
 
-
 exports.sendMessage = asyncHandler(async (req, res) => {
   const { content } = req.body;
   const { receiverId } = req.params;
@@ -25,11 +24,20 @@ exports.sendMessage = asyncHandler(async (req, res) => {
   const receiver = await User.findById(receiverId).lean();
   if (!receiver) return res.status(404).json({ msg: 'Receiver not found' });
 
-  const conversation = await Conversation.findOneAndUpdate(
-    { participants: { $all: [senderId, receiverId] } },
-    { $setOnInsert: { participants: [senderId, receiverId] }, $set: { lastMessageAt: Date.now() } },
-    { upsert: true, new: true }
-  );
+  // ---- FIX: find-or-create (avoid upsert on the same array path) ----
+  let conversation = await Conversation.findOne({
+    participants: { $all: [senderId, receiverId] },
+  });
+
+  if (!conversation) {
+    conversation = await Conversation.create({
+      participants: [senderId, receiverId],
+      lastMessageAt: Date.now(),
+    });
+  } else {
+    conversation.lastMessageAt = Date.now();
+    await conversation.save();
+  }
 
   const newMessage = await Message.create({
     conversation: conversation._id,
@@ -38,6 +46,7 @@ exports.sendMessage = asyncHandler(async (req, res) => {
     content: content.trim(),
   });
 
+  // Optional socket notify
   const { io, onlineUsers } = req.app.locals || {};
   const receiverSocketId = onlineUsers?.get(String(receiverId));
   if (io && receiverSocketId) {
